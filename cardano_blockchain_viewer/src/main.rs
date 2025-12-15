@@ -8,6 +8,9 @@ mod config;
 mod models;
 mod services;
 mod websocket;
+mod blockfrost;
+mod auth;
+mod api;
 
 use config::{BUFFER_SIZE, CardanoConfig, WEBSOCKET_ADDR};
 use models::AppState;
@@ -35,6 +38,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (oura_tx, _) = broadcast::channel(1000); // Channel for Oura events
     let (ws_tx, _) = broadcast::channel(1000); // Channel for WebSocket broadcasts
 
+
+    let jwt_secret = std::env::var("JWT_SECRET")
+                    .unwrap_or_else(|_| {
+                        tracing::warn!(" ⚠️  JWT_SECRET not set, using default (CHANGE IN PRODUCTION!)");
+            "change-this-secret-in-production-use-strong-key".to_string()
+                    });
+
+    let blockfrost_key = std::env::var("BLOCKFROST_API_KEY")
+        .expect("❌ BLOCKFROST_API_KEY environment variable must be set");
+
+    let jwt_manager = Arc::new(auth::JwtManager::new(jwt_secret));
+    let blockfrost = Arc::new(blockfrost::BlockfrostClient::new(blockfrost_key, "preprod"));
+    
+    info!("🔐 JWT Manager initialized");
+    info!("🌐 Blockfrost client initialized (preprod network)");
+
     // Initialize services
     let oura_reader = OuraReader::new(cardano_config);
     let event_processor = EventProcessor::new(Arc::clone(&state));
@@ -59,6 +78,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 error!("Event processing error: {}", e);
             }
         }
+    });
+
+    let api_router = api::create_router(jwt_manager, blockfrost);
+    let api_addr: SocketAddr = "127.0.0.1:3001".parse()?;
+
+    info!("🌍 REST API server starting on: http://{}", api_addr);
+    info!("   - POST http://{}/api/auth/challenge", api_addr);
+    info!("   - POST http://{}/api/auth/verify", api_addr);
+    info!("   - GET  http://{}/api/user/transactions (protected)", api_addr);
+    info!("   - GET  http://{}/api/user/summary (protected)", api_addr);
+
+    tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind(api_addr).await.unwrap();
+        axum::serve(listener, api_router).await.unwrap();
     });
 
     // Start WebSocket server
