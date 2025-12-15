@@ -94,9 +94,11 @@ export default function Home() {
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
+    // Connect WebSocket regardless of authentication status
+    // Authentication is only needed for personalized features
     const connectWebSocket = () => {
       try {
-        const ws = new WebSocket("ws://localhost:8080")
+        const ws = new WebSocket("ws://localhost:8080/ws")
 
         ws.onopen = () => {
           console.log("✅ Connected to Cardano blockchain!")
@@ -137,7 +139,7 @@ export default function Home() {
         wsRef.current.close()
       }
     }
-  }, [])
+  }, []) // Removed isAuthenticated dependency - always connect
 
   const handleMessage = (data: MessageEvent) => {
     console.log("[v0] Received message:", data.type, data)
@@ -203,12 +205,13 @@ export default function Home() {
   }
 
   const blockGroups = Object.entries(state.blockGroups)
-    .sort(([a], [b]) => b - a)
+    .sort(([a], [b]) => Number.parseInt(b) - Number.parseInt(a))
     .map(([timestamp, group]) => ({
       timestamp: Number.parseInt(timestamp),
       ...group,
     }))
 
+  // Show blockchain viewer to everyone (authentication not required)
   return (
     <main className="min-h-screen bg-background">
       <Header view={view} setView={setView} />
