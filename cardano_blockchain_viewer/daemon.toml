@@ -1,0 +1,7 @@
+[source]
+type = "N2N"
+address = ["Tcp", "preprod-node.world.dev.cardano.org:3001"]
+magic = "testnet-preprod"  # Magic: 1
+
+[sink]
+type = "Terminal"  # or Custom sink to Rust backend
