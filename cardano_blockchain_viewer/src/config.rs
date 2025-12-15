@@ -9,8 +9,8 @@ pub const MAX_BLOCK_COUNT: usize = 100;
 /// Maximum number of transactions before clearing the buffer
 pub const MAX_TX_COUNT: usize = 500;
 
-/// WebSocket server listening address
-pub const WEBSOCKET_ADDR: &str = "127.0.0.1:8080";
+/// Server listening address (for both REST API and WebSocket)
+pub const SERVER_ADDR: &str = "127.0.0.1:8080";
 
 /// Cardano network configuration
 pub struct CardanoConfig {

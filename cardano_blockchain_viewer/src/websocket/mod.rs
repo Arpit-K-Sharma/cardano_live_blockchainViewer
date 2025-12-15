@@ -1,5 +1,6 @@
 // WebSocket module - handles client connections
 
+pub mod axum_handler;
 pub mod handler;
 
-pub use handler::handle_connection;
+pub use axum_handler::{websocket_handler, WebSocketState};

@@ -12,10 +12,12 @@ pub mod user;
 
 use crate::auth::{auth_middleware, JwtManager};
 use crate::blockfrost::BlockfrostClient;
+use crate::websocket::{websocket_handler, WebSocketState};
 
 pub fn create_router(
     jwt_manager: Arc<JwtManager>,
     blockfrost: Arc<BlockfrostClient>,
+    ws_state: WebSocketState,
 ) -> Router {
     let auth_state = auth::AuthState {
         jwt_manager: jwt_manager.clone(),
@@ -44,6 +46,8 @@ pub fn create_router(
         ));
 
     Router::new()
+        .route("/ws", get(websocket_handler))
+        .with_state(ws_state)
         .merge(public_routes)
         .merge(protected_routes)
         .layer(cors)

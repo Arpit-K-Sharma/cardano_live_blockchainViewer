@@ -8,7 +8,7 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 
-use super::jwt::{Claims, JwtManager};
+use super::jwt::JwtManager;
 
 pub async fn auth_middleware(
     // Arc is a smart pointer that allows multiple threads to share ownership of the same value safely

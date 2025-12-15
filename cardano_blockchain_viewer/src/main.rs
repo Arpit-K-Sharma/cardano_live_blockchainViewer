@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::TcpListener;
 use tokio::sync::{Mutex, broadcast};
 use tracing::{error, info};
 
@@ -12,10 +11,10 @@ mod blockfrost;
 mod auth;
 mod api;
 
-use config::{BUFFER_SIZE, CardanoConfig, WEBSOCKET_ADDR};
+use config::{BUFFER_SIZE, CardanoConfig, SERVER_ADDR};
 use models::AppState;
 use services::{EventProcessor, OuraReader};
-use websocket::handle_connection;
+use websocket::WebSocketState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -80,33 +79,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let api_router = api::create_router(jwt_manager, blockfrost);
-    let api_addr: SocketAddr = "127.0.0.1:3001".parse()?;
+    // Create WebSocket state for Axum
+    let ws_state = WebSocketState {
+        app_state: Arc::clone(&state),
+        ws_tx: ws_tx.clone(),
+    };
 
-    info!("🌍 REST API server starting on: http://{}", api_addr);
-    info!("   - POST http://{}/api/auth/challenge", api_addr);
-    info!("   - POST http://{}/api/auth/verify", api_addr);
-    info!("   - GET  http://{}/api/user/transactions (protected)", api_addr);
-    info!("   - GET  http://{}/api/user/summary (protected)", api_addr);
+    let api_router = api::create_router(jwt_manager, blockfrost, ws_state);
+    let server_addr: SocketAddr = SERVER_ADDR.parse()?;
 
-    tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(api_addr).await.unwrap();
-        axum::serve(listener, api_router).await.unwrap();
-    });
+    info!("🌍 Server starting on: http://{}", server_addr);
+    info!("   REST API Endpoints:");
+    info!("   - POST http://{}/api/auth/challenge", server_addr);
+    info!("   - POST http://{}/api/auth/verify", server_addr);
+    info!("   - GET  http://{}/api/user/transactions (protected)", server_addr);
+    info!("   - GET  http://{}/api/user/summary (protected)", server_addr);
+    info!("   WebSocket Endpoint:");
+    info!("   - ws://{}/ws", server_addr);
+    info!("   Connect with: wscat -c ws://{}/ws", server_addr);
 
-    // Start WebSocket server
-    let addr: SocketAddr = WEBSOCKET_ADDR.parse()?;
-    let listener = TcpListener::bind(&addr).await?;
-    info!("WebSocket server listening on: ws://{}", addr);
-    info!("Connect with: wscat -c ws://{}", addr);
-    info!("Or open the HTML client in your browser");
-
-    // Accept WebSocket connections
-    while let Ok((stream, client_addr)) = listener.accept().await {
-        let state = Arc::clone(&state);
-        let rx = ws_tx.subscribe();
-        tokio::spawn(handle_connection(stream, client_addr, state, rx));
-    }
+    let listener = tokio::net::TcpListener::bind(server_addr).await?;
+    axum::serve(listener, api_router).await?;
 
     Ok(())
 }
