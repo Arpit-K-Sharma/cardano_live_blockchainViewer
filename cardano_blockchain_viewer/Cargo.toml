@@ -26,3 +26,6 @@ reqwest = { version = "0.12", features = ["json"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 rand = "0.8"
+
+cardano-serialization-lib = "11.5"
+ed25519-dalek = "2.1"

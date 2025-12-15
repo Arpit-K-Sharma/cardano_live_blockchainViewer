@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error, info};
-
+use tracing::{error, info, warn};
 use crate::auth::JwtManager;
 
 // It creates multi thread shared mutable hashmap
