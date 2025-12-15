@@ -205,14 +205,14 @@ pub async fn verify_signature(
 // ============================================================================
 
 fn verify_cardano_signature(
-    _address: &str,
+    address: &str,
     message: &str,
     signature_hex: &str,
     public_key_hex: &str,
 ) -> Result<bool, String> {
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-    // Decode signature from hex
+    // Decode signature from hex (CIP-30 returns COSE_Sign1)
     let signature_bytes =
         hex::decode(signature_hex).map_err(|e| format!("Invalid signature hex: {}", e))?;
 
@@ -220,21 +220,42 @@ fn verify_cardano_signature(
     let public_key_bytes =
         hex::decode(public_key_hex).map_err(|e| format!("Invalid public key hex: {}", e))?;
 
+    // Parse COSE_Sign1 structure (CIP-30 format)
+    // CIP-30 wallets return signature in COSE_Sign1 format
+    // We need to extract the raw signature bytes and payload
+    let (raw_signature, payload) = extract_signature_from_cose_sign1(&signature_bytes)
+        .map_err(|e| format!("Failed to parse COSE_Sign1: {}", e))?;
+
+    // Verify payload matches the challenge message (if payload is present)
+    if !payload.is_empty() {
+        let payload_str = String::from_utf8(payload)
+            .map_err(|_| "Payload is not valid UTF-8".to_string())?;
+        if payload_str != message {
+            return Err(
+                "Payload in COSE_Sign1 does not match the challenge message".to_string()
+            );
+        }
+    }
+
     // Parse COSE_Key structure (CIP-30 format)
     // Wallet extensions return public key in COSE_Key format
     // We need to extract the raw public key bytes
     let raw_public_key = extract_public_key_from_cose(&public_key_bytes)
         .map_err(|e| format!("Failed to parse COSE key: {}", e))?;
 
+    // CRITICAL SECURITY CHECK: Verify the public key matches the claimed address
+    // This prevents attackers from authenticating as any address with their own keys
+    verify_address_from_public_key(address, &raw_public_key)
+        .map_err(|e| format!("Address verification failed: {}", e))?;
+
     // Create Ed25519 verifying key
     let verifying_key = VerifyingKey::from_bytes(&raw_public_key)
         .map_err(|e| format!("Invalid public key: {}", e))?;
 
     // Parse signature
-    let signature = Signature::from_slice(&signature_bytes)
-        .map_err(|e| format!("Invalid signature format: {}", e))?;
+    let signature = Signature::from_bytes(&raw_signature);
 
-    // Verify signature
+    // Verify signature against the original message
     match verifying_key.verify(message.as_bytes(), &signature) {
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
@@ -243,64 +264,189 @@ fn verify_cardano_signature(
 
 // Extract raw Ed25519 public key from COSE_Key format
 fn extract_public_key_from_cose(cose_key_bytes: &[u8]) -> Result<[u8; 32], String> {
-    // CIP-30 wallets return COSE_Key in CBOR format
-    // Structure: Map with key -2 containing the public key bytes
+    use ciborium::Value;
+    use std::io::Cursor;
 
-    // For simplicity, if the bytes are already 32 bytes, treat as raw key
+    // CIP-30 wallets return COSE_Key in CBOR format (RFC 8152)
+    // Structure: CBOR Map with:
+    //   kty (1): Key type (1 for OKP)
+    //   crv (-1): Curve (6 for Ed25519)
+    //   x (-2): Public key bytes (32 bytes)
+
+    // Handle case where bytes are already raw 32-byte key
     if cose_key_bytes.len() == 32 {
         let mut key = [0u8; 32];
         key.copy_from_slice(cose_key_bytes);
         return Ok(key);
     }
 
-    // Parse CBOR COSE_Key structure
-    // This is a simplified parser - in production use a proper CBOR library
-    // Look for the -2 key which contains the public key
+    // Parse CBOR structure
+    let cursor = Cursor::new(cose_key_bytes);
+    let value: Value = ciborium::from_reader(cursor)
+        .map_err(|e| format!("Failed to parse CBOR: {}", e))?;
 
-    // Try to find 32-byte sequence in the COSE structure
-    for i in 0..cose_key_bytes.len().saturating_sub(32) {
-        if i + 32 <= cose_key_bytes.len() {
-            // Check if this looks like a valid Ed25519 public key
-            // (basic heuristic: not all zeros, not all ones)
-            let slice = &cose_key_bytes[i..i + 32];
-            if slice.iter().any(|&b| b != 0) && slice.iter().any(|&b| b != 255) {
-                let mut key = [0u8; 32];
-                key.copy_from_slice(slice);
-                return Ok(key);
+    // Extract map from CBOR value
+    let map = match value {
+        Value::Map(m) => m,
+        _ => return Err("COSE_Key must be a CBOR map".to_string()),
+    };
+
+    // Look for key -2 (x coordinate / public key)
+    for (key, val) in map {
+        // Check if key is integer -2
+        if let Value::Integer(k) = key {
+            if k == ciborium::value::Integer::from(-2) {
+                // Extract bytes from value
+                if let Value::Bytes(bytes) = val {
+                    if bytes.len() == 32 {
+                        let mut key_bytes = [0u8; 32];
+                        key_bytes.copy_from_slice(&bytes);
+                        return Ok(key_bytes);
+                    } else {
+                        return Err(format!(
+                            "Public key must be 32 bytes, got {}",
+                            bytes.len()
+                        ));
+                    }
+                } else {
+                    return Err("Public key value must be bytes".to_string());
+                }
             }
         }
     }
 
-    Err("Could not extract public key from COSE_Key structure".to_string())
+    Err("Could not find public key (label -2) in COSE_Key structure".to_string())
+}
+
+// Extract signature and payload from COSE_Sign1 format (CIP-30)
+fn extract_signature_from_cose_sign1(cose_sign1_bytes: &[u8]) -> Result<([u8; 64], Vec<u8>), String> {
+    use ciborium::Value;
+    use std::io::Cursor;
+
+    // COSE_Sign1 structure (RFC 8152):
+    // [
+    //   protected_headers (bstr),
+    //   unprotected_headers (map),
+    //   payload (bstr / nil),
+    //   signature (bstr)
+    // ]
+
+    // Handle case where bytes are already raw 64-byte signature
+    if cose_sign1_bytes.len() == 64 {
+        let mut sig = [0u8; 64];
+        sig.copy_from_slice(cose_sign1_bytes);
+        return Ok((sig, Vec::new()));
+    }
+
+    // Parse CBOR structure
+    let cursor = Cursor::new(cose_sign1_bytes);
+    let value: Value = ciborium::from_reader(cursor)
+        .map_err(|e| format!("Failed to parse COSE_Sign1 CBOR: {}", e))?;
+
+    // Extract array from CBOR value
+    let array = match value {
+        Value::Array(arr) => arr,
+        _ => return Err("COSE_Sign1 must be a CBOR array".to_string()),
+    };
+
+    // Verify array has 4 elements
+    if array.len() != 4 {
+        return Err(format!(
+            "COSE_Sign1 must have 4 elements, got {}",
+            array.len()
+        ));
+    }
+
+    // Extract payload (index 2)
+    let payload = match &array[2] {
+        Value::Bytes(bytes) => bytes.clone(),
+        Value::Null => Vec::new(),
+        _ => return Err("COSE_Sign1 payload must be bytes or null".to_string()),
+    };
+
+    // Extract signature (index 3)
+    let signature_bytes = match &array[3] {
+        Value::Bytes(bytes) => bytes.clone(),
+        _ => return Err("COSE_Sign1 signature must be bytes".to_string()),
+    };
+
+    // Verify signature is 64 bytes (Ed25519)
+    if signature_bytes.len() != 64 {
+        return Err(format!(
+            "Ed25519 signature must be 64 bytes, got {}",
+            signature_bytes.len()
+        ));
+    }
+
+    let mut signature = [0u8; 64];
+    signature.copy_from_slice(&signature_bytes);
+
+    Ok((signature, payload))
 }
 
 // ============================================================================
 // ADDITIONAL: Verify address matches public key
 // ============================================================================
 
-#[allow(dead_code)]
 fn verify_address_from_public_key(
     address_bech32: &str,
     public_key_bytes: &[u8; 32],
 ) -> Result<bool, String> {
-    // This would use cardano-serialization-lib to:
-    // 1. Decode the bech32 address
-    // 2. Hash the public key
-    // 3. Compare with the address payment credential
+    use cardano_serialization_lib::{
+        address::{Address, BaseAddress, EnterpriseAddress, PointerAddress},
+        crypto::PublicKey,
+    };
 
-    // For now, we trust that the wallet extension
-    // only allows signing with keys that match the address
+    // Parse the Cardano address from bech32 format
+    let address = Address::from_bech32(address_bech32)
+        .map_err(|e| format!("Invalid Cardano address: {}", e))?;
 
-    // In production, implement full verification:
-    /*
-    use cardano_serialization_lib::*;
-    let addr = Address::from_bech32(address_bech32)
-        .map_err(|e| format!("Invalid address: {}", e))?;
+    // Create PublicKey from bytes
+    let public_key = PublicKey::from_bytes(public_key_bytes)
+        .map_err(|e| format!("Invalid public key bytes: {}", e))?;
 
-    // Extract payment credential and verify it matches the public key hash
-    // ...
-    */
+    // Hash the public key to get the key hash (Blake2b-224)
+    let pub_key_hash = public_key.hash();
 
-    let _ = (address_bech32, public_key_bytes);
-    Ok(true) // Placeholder
+    // Extract payment credential from address and compare
+    // Try different address types (Base, Enterprise, Pointer, etc.)
+    let matches = if let Some(base_addr) = BaseAddress::from_address(&address) {
+        // Base address (payment + stake)
+        match base_addr.payment_cred().to_keyhash() {
+            Some(addr_key_hash) => addr_key_hash.to_bytes() == pub_key_hash.to_bytes(),
+            None => {
+                return Err(
+                    "Address uses script credential, not key credential".to_string()
+                )
+            }
+        }
+    } else if let Some(enterprise_addr) = EnterpriseAddress::from_address(&address) {
+        // Enterprise address (payment only, no stake)
+        match enterprise_addr.payment_cred().to_keyhash() {
+            Some(addr_key_hash) => addr_key_hash.to_bytes() == pub_key_hash.to_bytes(),
+            None => {
+                return Err(
+                    "Address uses script credential, not key credential".to_string()
+                )
+            }
+        }
+    } else if let Some(pointer_addr) = PointerAddress::from_address(&address) {
+        // Pointer address
+        match pointer_addr.payment_cred().to_keyhash() {
+            Some(addr_key_hash) => addr_key_hash.to_bytes() == pub_key_hash.to_bytes(),
+            None => {
+                return Err(
+                    "Address uses script credential, not key credential".to_string()
+                )
+            }
+        }
+    } else {
+        return Err("Unsupported address type (Byron, Reward, or Script)".to_string());
+    };
+
+    if matches {
+        Ok(true)
+    } else {
+        Err("Public key does not match the address".to_string())
+    }
 }

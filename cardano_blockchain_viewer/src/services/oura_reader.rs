@@ -36,10 +36,8 @@ impl OuraReader {
             .arg("tcp")
             .arg("--magic")
             .arg(self.config.magic)
-            .arg("--no-color") // Disable ANSI color codes in output
-            .arg("--quiet") // Reduce log output
             .stdout(Stdio::piped())
-            .stderr(Stdio::null()) // Suppress stderr logging to avoid mixing with JSON
+            .stderr(Stdio::piped()) // Capture stderr to log errors
             // spawn starts the process asynchronously
             // Returns a Child process handle (child) that can be used to read output or wait for the process to finish.
             // -? propagates errors if starting the process fails.
@@ -47,7 +45,6 @@ impl OuraReader {
 
         // It takes the piped output to the terminal to the stdout and if it fails it panics with the message
         let stdout = child.stdout.take().expect("Failed to capture stdout");
-        // It takes the piped error to the terminal to the stderr and if it fails it panics with the message
         let stderr = child.stderr.take().expect("Failed to capture stderr");
 
         // Spawn task to log stderr
@@ -55,7 +52,7 @@ impl OuraReader {
             let reader = BufReader::new(stderr);
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                info!("oura: {}", line);
+                error!("oura stderr: {}", line);
             }
         });
 

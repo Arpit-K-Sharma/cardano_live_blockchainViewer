@@ -18,6 +18,9 @@ use websocket::WebSocketState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load environment variables from .env file
+    dotenvy::dotenv().ok();
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter("info")
