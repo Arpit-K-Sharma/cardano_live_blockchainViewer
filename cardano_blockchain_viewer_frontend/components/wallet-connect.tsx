@@ -12,6 +12,16 @@ interface WalletConnectProps {
   compact?: boolean // If true, renders without the card wrapper for use in dialogs
 }
 
+// Wallet installation URLs
+const WALLET_INSTALL_URLS: Record<string, string> = {
+  eternl: 'https://chromewebstore.google.com/detail/eternl/kmhcihpebfmpgmihbkipmjlmmioameka',
+  lace: 'https://chromewebstore.google.com/detail/lace/gafhhkghbfjjkeiendhlofajokpaflmk',
+  typhon: 'https://chromewebstore.google.com/detail/typhon-wallet/kfdniefadaanbjodldohaedphafoffoh',
+  yoroi: 'https://chromewebstore.google.com/detail/yoroi/ffnbelfdoeiohenkjibnmadjiehjhajb',
+  nami: 'https://chromewebstore.google.com/detail/nami/lpfcbjknijpeeillifnkikgncikgfhdo',
+  flint: 'https://chromewebstore.google.com/detail/flint-wallet/hnhobjmcibchnmglfbldbfabcgaknlkj',
+}
+
 export function WalletConnect({ onSuccess, compact = false }: WalletConnectProps) {
   const { login } = useAuth()
   const [installedWallets, setInstalledWallets] = useState<SupportedWallet[]>([])
@@ -64,6 +74,13 @@ export function WalletConnect({ onSuccess, compact = false }: WalletConnectProps
     }
   }
 
+  const handleInstall = (walletId: string) => {
+    const url = WALLET_INSTALL_URLS[walletId]
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
   const content = (
     <div className="flex flex-col gap-6">
       <div className="text-center">
@@ -78,45 +95,75 @@ export function WalletConnect({ onSuccess, compact = false }: WalletConnectProps
         </div>
       )}
 
-      <div className="space-y-3">
+      {/* Scrollable wallet list with max height */}
+      <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 -mr-2">
         {SUPPORTED_WALLETS.map((wallet) => {
           const installed = installedWallets.some(w => w.id === wallet.id)
-          const disabled = !installed || isConnecting
           const isSelected = selectedWallet === wallet.id
+          const isProcessing = isConnecting && isSelected
 
           return (
-            <Button
+            <div
               key={wallet.id}
-              onClick={() => installed && handleConnect(wallet.id)}
-              disabled={disabled}
-              variant={isSelected ? 'default' : 'outline'}
-              className="w-full justify-start gap-3 h-auto py-4"
+              className="border rounded-lg p-4 hover:border-primary/50 transition-colors"
             >
-              <span className="text-2xl">{wallet.icon}</span>
-              <div className="text-left flex-1">
-                <div className="font-semibold flex items-center gap-2">
-                  <span>{wallet.name}</span>
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">{wallet.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold">{wallet.name}</span>
+                    {installed ? (
+                      <span className="text-xs px-2 py-0.5 rounded bg-green-500/10 text-green-600 border border-green-500/20">
+                        ✓ Installed
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded bg-orange-500/10 text-orange-600 border border-orange-500/20">
+                        Not Installed
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mb-3">
+                    {installed 
+                      ? 'Ready to connect to your wallet'
+                      : 'Install the browser extension to use this wallet'}
+                  </div>
+                  
                   {installed ? (
-                    <span className="text-xs px-2 py-0.5 rounded bg-green-500/10 text-green-600 border border-green-500/20">Installed</span>
+                    <Button
+                      onClick={() => handleConnect(wallet.id)}
+                      disabled={isConnecting}
+                      variant={isSelected ? 'default' : 'outline'}
+                      className="w-full"
+                      size="sm"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <span className="animate-spin mr-2">⏳</span>
+                          Connecting...
+                        </>
+                      ) : (
+                        'Connect Wallet'
+                      )}
+                    </Button>
                   ) : (
-                    <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">Not installed</span>
+                    <Button
+                      onClick={() => handleInstall(wallet.id)}
+                      variant="secondary"
+                      className="w-full"
+                      size="sm"
+                    >
+                      <span className="mr-2">📥</span>
+                      Install {wallet.name}
+                    </Button>
                   )}
                 </div>
-                <div className="text-xs opacity-70">
-                  {isConnecting && isSelected
-                    ? 'Connecting...'
-                    : (installed ? 'Click to connect' : 'Install the extension to use this wallet')}
-                </div>
               </div>
-              {isConnecting && isSelected && (
-                <div className="animate-spin">⏳</div>
-              )}
-            </Button>
+            </div>
           )
         })}
       </div>
 
-      <div className="text-xs text-center text-muted-foreground">
+      <div className="text-xs text-center text-muted-foreground pt-2 border-t">
         <p>🔒 Your wallet signature proves ownership without exposing your private keys</p>
       </div>
     </div>
