@@ -235,10 +235,22 @@ pub async fn verify_signature(
     challenges.remove(&payload.address);
     drop(challenges);
 
+
+    // ========================================================================
+    // CONVERT ADDRESS TO BECH32 FOR BLOCKFROST API
+    // ========================================================================
+    let bech32_address = convert_to_bech32(&normalized_address)
+        .unwrap_or_else(|e| {
+            warn!("Failed to convert address to bech32: {}, using original", e);
+            normalized_address.clone()
+        });
+
+    info!("📝 Address for JWT: {} (bech32 format)", &bech32_address[..bech32_address.len().min(20)]);
+
     // Use normalized address for JWT token
     let token = state
         .jwt_manager
-        .generate_token(normalized_address.clone(), payload.stake_address)
+        .generate_token(bech32_address.clone(), payload.stake_address)
         .map_err(|e| {
             error!("Failed to generate JWT: {}", e);
             (
@@ -670,4 +682,25 @@ fn verify_address_from_public_key(
     } else {
         Err("Public key does not match the address".to_string())
     }
+}
+
+
+/// Convert hex address to bech32 format for Blockfrost API
+fn convert_to_bech32(address: &str) -> Result<String, String> {
+    use cardano_serialization_lib::address::Address;
+    
+    // If it's already bech32, return as-is
+    if address.starts_with("addr") {
+        return Ok(address.to_string());
+    }
+    
+    // Try to convert hex to bech32
+    let address_bytes = hex::decode(address)
+        .map_err(|e| format!("Invalid hex address: {}", e))?;
+    
+    let addr = Address::from_bytes(address_bytes)
+        .map_err(|e| format!("Invalid address bytes: {}", e))?;
+    
+    addr.to_bech32(None)
+        .map_err(|e| format!("Failed to convert to bech32: {}", e))
 }

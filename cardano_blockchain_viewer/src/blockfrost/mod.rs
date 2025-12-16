@@ -55,11 +55,31 @@ pub struct BlockfrostTxDetails {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AccountInfo {
-    pub controlled_amount: String,
+pub struct BlockfrostAddressInfo {
+    pub address: String,
+    #[serde(default)]
+    pub amount: Vec<BlockfrostAmount>,
+    #[serde(default)]
     pub stake_address: Option<String>,
+    #[serde(default)]
     pub tx_count: usize,
+    // Blockfrost returns "type" field
+    #[serde(default)]
+    pub r#type: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BlockfrostAmount {
+    pub unit: String,
+    pub quantity: String,
+}
+
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct AccountInfo {
+//     pub controlled_amount: String,
+//     pub stake_address: Option<String>,
+//     pub tx_count: usize,
+// }
 
 impl BlockfrostClient {
     pub fn new(api_key: String, network: &str) -> Self {
@@ -185,13 +205,23 @@ impl BlockfrostClient {
             return Err(format!("Blockfrost error: {} - {}", status, error_text));
         }
 
-        let info: AccountInfo = response
+        let info: BlockfrostAddressInfo = response
             .json()
             .await
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
+            .map_err(|e| {
+                tracing::error!("Failed to parse Blockfrost response: {}", e);
+                format!("Failed to parse response: {}", e)
+            })?;
+
+        // Extract ADA balance (unit = "lovelace")
+        let balance = info.amount
+            .iter()
+            .find(|a| a.unit == "lovelace")
+            .map(|a| a.quantity.clone())
+            .unwrap_or_else(|| "0".to_string());
 
         Ok(crate::api::user::AccountInfo {
-            balance: info.controlled_amount,
+            balance,
             tx_count: info.tx_count,
         })
     }
