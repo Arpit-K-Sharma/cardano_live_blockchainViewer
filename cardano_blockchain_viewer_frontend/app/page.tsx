@@ -104,7 +104,6 @@ export default function Home() {
         const ws = new WebSocket("ws://localhost:8080/ws")
 
         ws.onopen = () => {
-          console.log("✅ Connected to Cardano blockchain!")
           setState((prev) => ({ ...prev, connected: true }))
         }
 
@@ -123,7 +122,6 @@ export default function Home() {
         }
 
         ws.onclose = () => {
-          console.log("⚠️ Disconnected. Reconnecting in 3 seconds...")
           setState((prev) => ({ ...prev, connected: false }))
           setTimeout(connectWebSocket, 3000)
         }
@@ -145,10 +143,8 @@ export default function Home() {
   }, []) // Removed isAuthenticated dependency - always connect
 
   const handleMessage = (data: MessageEvent) => {
-    console.log("[v0] Received message:", data.type, data)
-
+    
     if (data.type === "stats") {
-      console.log("[v0] Stats updated:", data.data)
       setState((prev) => ({
         ...prev,
         stats: data.data,

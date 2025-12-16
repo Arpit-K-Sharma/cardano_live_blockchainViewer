@@ -19,7 +19,10 @@ use websocket::WebSocketState;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load environment variables from .env file
-    dotenvy::dotenv().ok();
+    // Try current working directory first, then explicitly try the backend folder
+    if dotenvy::dotenv().is_err() {
+        let _ = dotenvy::from_filename("cardano_blockchain_viewer/.env");
+    }
 
     // Initialize logging
     tracing_subscriber::fmt()
@@ -48,13 +51,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     });
 
     let blockfrost_key = std::env::var("BLOCKFROST_API_KEY")
-        .expect("❌ BLOCKFROST_API_KEY environment variable must be set");
+        .unwrap_or_else(|_| {
+            // Attempt to load from backend-specific .env if not yet loaded
+            let _ = dotenvy::from_filename("cardano_blockchain_viewer/.env");
+            std::env::var("BLOCKFROST_API_KEY").expect("❌ BLOCKFROST_API_KEY environment variable must be set")
+        });
 
     let jwt_manager = Arc::new(auth::JwtManager::new(jwt_secret));
+    let blockfrost_key_len = blockfrost_key.len();
     let blockfrost = Arc::new(blockfrost::BlockfrostClient::new(blockfrost_key, "preprod"));
     
     info!("🔐 JWT Manager initialized");
     info!("🌐 Blockfrost client initialized (preprod network)");
+    info!("🔑 BLOCKFROST_API_KEY loaded ({} chars)", blockfrost_key_len);
 
     // Initialize services
     let oura_reader = OuraReader::new(cardano_config);

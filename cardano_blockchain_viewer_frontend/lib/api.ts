@@ -90,11 +90,12 @@ export interface WalletSummary {
  */
 export async function getUserTransactions(
   token: string,
+  address: string,
   page: number = 1,
   count: number = 20
 ): Promise<TransactionResponse> {
   const response = await fetch(
-    `${API_BASE_URL}/api/user/transactions?page=${page}&count=${count}`,
+    `${API_BASE_URL}/api/user/transactions?address=${encodeURIComponent(address)}&page=${page}&count=${count}`,
     {
       method: 'GET',
       headers: {
@@ -105,8 +106,36 @@ export async function getUserTransactions(
   )
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to fetch transactions' }))
-    throw new Error(error.error || 'Failed to fetch transactions')
+    // Treat 404 (new/empty wallet) as empty history
+    if (response.status === 404) {
+      return { transactions: [], total: 0, page }
+    }
+
+    const contentType = response.headers.get('content-type')
+    let errorMessage = 'Failed to fetch transactions'
+    
+    if (contentType?.includes('application/json')) {
+      try {
+        const error = await response.json()
+        // Blockfrost-style not found message
+        if (error?.message?.includes('component has not been found')) {
+          return { transactions: [], total: 0, page }
+        }
+        errorMessage = error.error || errorMessage
+      } catch {
+        // JSON parsing failed, use default message
+      }
+    } else {
+      // Non-JSON response (likely HTML error page)
+      const text = await response.text().catch(() => '')
+      if (text.includes('<!DOCTYPE html>') || text.includes('<html')) {
+        errorMessage = `Server returned HTML instead of JSON. This usually means the backend server is not running or encountered an error. Status: ${response.status}`
+      } else {
+        errorMessage = `Server error: ${response.status}. Response: ${text.substring(0, 200)}`
+      }
+    }
+    
+    throw new Error(errorMessage)
   }
 
   return response.json()
@@ -115,8 +144,8 @@ export async function getUserTransactions(
 /**
  * Get user's wallet summary (requires authentication)
  */
-export async function getUserSummary(token: string): Promise<WalletSummary> {
-  const response = await fetch(`${API_BASE_URL}/api/user/summary`, {
+export async function getUserSummary(token: string, address: string): Promise<WalletSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/user/summary?address=${encodeURIComponent(address)}`, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -125,8 +154,45 @@ export async function getUserSummary(token: string): Promise<WalletSummary> {
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to fetch wallet summary' }))
-    throw new Error(error.error || 'Failed to fetch wallet summary')
+    // Treat 404 (new/empty wallet) as zero balance/tx
+    if (response.status === 404) {
+      return {
+        address,
+        stake_address: null,
+        balance: '0',
+        transaction_count: 0,
+      }
+    }
+
+    const contentType = response.headers.get('content-type')
+    let errorMessage = 'Failed to fetch account info'
+    
+    if (contentType?.includes('application/json')) {
+      try {
+        const error = await response.json()
+        if (error?.message?.includes('component has not been found')) {
+          return {
+            address,
+            stake_address: null,
+            balance: '0',
+            transaction_count: 0,
+          }
+        }
+        errorMessage = error.error || errorMessage
+      } catch {
+        // JSON parsing failed, use default message
+      }
+    } else {
+      // Non-JSON response (likely HTML error page)
+      const text = await response.text().catch(() => '')
+      if (text.includes('<!DOCTYPE html>') || text.includes('<html')) {
+        errorMessage = `Failed to fetch account info: Server returned HTML instead of JSON. This usually means the backend server is not running or encountered an error. Status: ${response.status}`
+      } else {
+        errorMessage = `Failed to fetch account info: Server error ${response.status}. Response: ${text.substring(0, 200)}`
+      }
+    }
+    
+    throw new Error(errorMessage)
   }
 
   return response.json()

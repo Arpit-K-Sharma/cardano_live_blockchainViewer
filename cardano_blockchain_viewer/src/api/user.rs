@@ -13,8 +13,14 @@ pub struct UserState {
 
 #[derive(Debug, Deserialize)]
 pub struct TransactionQuery {
+    pub address: String,
     pub page: Option<u32>,
     pub count: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SummaryQuery {
+    pub address: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,21 +57,36 @@ pub struct AccountInfo {
 
 pub async fn get_transactions(
     State(state): State<UserState>,
-    Extension(claims): Extension<Claims>,
+    Extension(_claims): Extension<Claims>, // JWT still required for authentication
     axum::extract::Query(query): axum::extract::Query<TransactionQuery>,
 ) -> Result<Json<TransactionResponse>, (StatusCode, Json<serde_json::Value>)> {
+    // Validate wallet address from query parameter
+    if query.address.is_empty() {
+        tracing::error!("Empty wallet address in query parameter");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Missing wallet address parameter" })),
+        ));
+    }
+
     let page = query.page.unwrap_or(1);
     let count = query.count.unwrap_or(10);
 
+    let address_preview = if query.address.len() >= 16 {
+        &query.address[..16]
+    } else {
+        &query.address
+    };
+
     tracing::info!(
-        "Fetching transactions for address: {} (page: {})",
-        &claims.wallet_address[..16],
+        "Fetching transactions for address: {}... (page: {})",
+        address_preview,
         page
     );
 
     let transactions = state
         .blockfrost
-        .get_address_transactions(&claims.wallet_address, page, count)
+        .get_address_transactions(&query.address, page, count)
         .await
         .map_err(|e| {
             tracing::error!("Blockfrost error: {}", e);
@@ -84,16 +105,32 @@ pub async fn get_transactions(
 
 pub async fn get_summary(
     State(state): State<UserState>,
-    Extension(claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>, // JWT still required for authentication and stake address
+    axum::extract::Query(query): axum::extract::Query<SummaryQuery>,
 ) -> Result<Json<WalletSummary>, (StatusCode, Json<serde_json::Value>)> {
+    // Validate wallet address from query parameter
+    if query.address.is_empty() {
+        tracing::error!("Empty wallet address in query parameter");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Missing wallet address parameter" })),
+        ));
+    }
+
+    let address_preview = if query.address.len() >= 16 {
+        &query.address[..16]
+    } else {
+        &query.address
+    };
+
     tracing::info!(
-        "Fetching wallet summary for address: {}",
-        &claims.wallet_address[..16]
+        "Fetching wallet summary for address: {}...",
+        address_preview
     );
 
     let account_info = state
         .blockfrost
-        .get_account_info(&claims.wallet_address)
+        .get_account_info(&query.address)
         .await
         .map_err(|e| {
             tracing::error!("Blockfrost error: {}", e);
@@ -104,8 +141,8 @@ pub async fn get_summary(
         })?;
 
     Ok(Json(WalletSummary {
-        address: claims.wallet_address,
-        stake_address: claims.stake_address,
+        address: query.address,
+        stake_address: claims.stake_address, // Still get stake address from JWT
         balance: account_info.balance,
         transaction_count: account_info.tx_count,
     }))

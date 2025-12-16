@@ -110,7 +110,6 @@ export async function connectWallet(walletId: string): Promise<{
 
   // Enable wallet (requests user permission)
   const api = await walletApi.enable()
-
   // Get wallet address
   // Note: CIP-30 wallets may return addresses in hex or bech32 format
   const usedAddresses = await api.getUsedAddresses()
@@ -121,23 +120,10 @@ export async function connectWallet(walletId: string): Promise<{
     throw new Error('No addresses found in wallet')
   }
 
-  // Determine address format and normalize
-  // CIP-30 signData accepts both hex and bech32 addresses
-  // We'll keep the address as returned by the wallet for signData operations
-  // but ensure consistency for backend communication
-  let address: string
+  // Keep address as returned by wallet (hex or bech32).
+  // We'll only convert to bech32 right before calling backend APIs.
+  const address = rawAddress
   
-  // Check if address is bech32 (starts with addr1, addr_test1, etc.)
-  if (rawAddress.startsWith('addr')) {
-    // It's a bech32 address - use as-is for signData
-    address = rawAddress
-    console.log('📝 Address is bech32 format:', address.substring(0, 20) + '...')
-  } else {
-    // Assume it's hex format
-    address = rawAddress
-    console.log('📝 Address is hex format:', address.substring(0, 20) + '...')
-  }
-
   // Get stake address (optional) - keep as hex for consistency
   let stakeAddress: string | null = null
   try {
@@ -166,21 +152,11 @@ export async function signData(
   
   // Convert message to hex (as required by CIP-30)
   const messageHex = Buffer.from(message, 'utf-8').toString('hex')
-  console.log('✍️ Signing message:', {
-    originalLength: message.length,
-    hexLength: messageHex.length,
-    hexPreview: messageHex.substring(0, 50) + '...'
-  })
-
+  
   // Sign with wallet - address can be hex or bech32, wallet handles it
   // The wallet will sign the bytes represented by the hex string
   const signature = await api.signData(address, messageHex)
   
-  console.log('✅ Signature received:', {
-    signatureLength: signature.signature.length,
-    keyLength: signature.key.length
-  })
-
   return signature
 }
 

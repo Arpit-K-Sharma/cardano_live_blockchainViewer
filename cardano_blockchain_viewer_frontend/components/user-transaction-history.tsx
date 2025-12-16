@@ -9,13 +9,60 @@ import { getUserTransactions, getUserSummary, type Transaction, type WalletSumma
 import { formatDistanceToNow } from 'date-fns'
 
 export function UserTransactionHistory() {
-  const { isAuthenticated, token } = useAuth()
+  const { isAuthenticated, token, walletApi } = useAuth()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [summary, setSummary] = useState<WalletSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
+
+  // Get wallet address directly from wallet API (raw, hex or bech32)
+  const getWalletAddress = async (): Promise<string | null> => {
+    if (!walletApi) {
+      setError('Wallet not connected. Please reconnect your wallet.')
+      return null
+    }
+
+    try {
+      // Try getChangeAddress first (primary payment address)
+      try {
+        const changeAddress = await walletApi.getChangeAddress()
+        if (changeAddress) {
+          return changeAddress
+        }
+      } catch (err) {
+        console.warn('getChangeAddress() failed:', err)
+      }
+
+      // Fallback to getUsedAddresses
+      try {
+        const usedAddresses = await walletApi.getUsedAddresses()
+        if (usedAddresses && usedAddresses.length > 0) {
+          return usedAddresses[0]
+        }
+      } catch (err) {
+        console.warn('getUsedAddresses() failed:', err)
+      }
+
+      // Fallback to getUnusedAddresses
+      try {
+        const unusedAddresses = await walletApi.getUnusedAddresses()
+        if (unusedAddresses && unusedAddresses.length > 0) {
+          return unusedAddresses[0]
+        }
+      } catch (err) {
+        console.warn('getUnusedAddresses() failed:', err)
+      }
+
+      setError('No addresses found in wallet')
+      return null
+    } catch (err) {
+      console.error('Failed to get wallet address:', err)
+      setError(err instanceof Error ? err.message : 'Failed to get wallet address')
+      return null
+    }
+  }
 
   const loadTransactions = async (pageNum: number = 1) => {
     if (!token) return
@@ -24,10 +71,17 @@ export function UserTransactionHistory() {
       setLoading(true)
       setError(null)
 
+      // Get wallet address directly from wallet (raw)
+      const rawWalletAddress = await getWalletAddress()
+      if (!rawWalletAddress) {
+        setLoading(false)
+        return
+      }
+
       // Load summary and transactions in parallel
       const [summaryData, txData] = await Promise.all([
-        getUserSummary(token),
-        getUserTransactions(token, pageNum, 20),
+        getUserSummary(token, rawWalletAddress),
+        getUserTransactions(token, rawWalletAddress, pageNum, 20),
       ])
 
       setSummary(summaryData)
@@ -48,14 +102,14 @@ export function UserTransactionHistory() {
   }
 
   useEffect(() => {
-    if (isAuthenticated && token) {
+    if (isAuthenticated && token && walletApi) {
       loadTransactions(1)
     } else {
       setTransactions([])
       setSummary(null)
       setLoading(false)
     }
-  }, [isAuthenticated, token])
+  }, [isAuthenticated, token, walletApi])
 
   const formatTime = (timestamp: number) => {
     try {

@@ -52,6 +52,7 @@ pub struct VerifyRequest {
 #[derive(Debug, Serialize)]
 pub struct VerifyResponse {
     pub token: String,
+    pub address: String,
 }
 
 pub async fn create_challenge(
@@ -261,7 +262,7 @@ pub async fn verify_signature(
 
     info!("✅ JWT issued for address: {}", &normalized_address[..normalized_address.len().min(16)]);
 
-    Ok(Json(VerifyResponse { token }))
+    Ok(Json(VerifyResponse { token, address: bech32_address }))
 }
 
 // ============================================================================
