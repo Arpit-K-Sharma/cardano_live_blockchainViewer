@@ -1,6 +1,36 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+/// Convert hex address to bech32 format for Blockfrost API
+/// Blockfrost requires bech32 addresses (addr1...), not hex
+fn hex_to_bech32_address(hex_address: &str) -> Result<String, String> {
+    use cardano_serialization_lib::address::Address;
+    
+    // Try to decode hex address
+    let address_bytes = hex::decode(hex_address)
+        .map_err(|e| format!("Invalid hex address: {}", e))?;
+    
+    // Create Address from bytes
+    let address = Address::from_bytes(address_bytes)
+        .map_err(|e| format!("Invalid address bytes: {}", e))?;
+    
+    // Convert to bech32
+    address.to_bech32(None)
+        .map_err(|e| format!("Failed to convert to bech32: {}", e))
+}
+
+/// Normalize address format - convert hex to bech32 if needed
+/// Returns bech32 address if input is hex, otherwise returns as-is
+fn normalize_address_for_blockfrost(address: &str) -> Result<String, String> {
+    // Check if it's already bech32 (starts with addr)
+    if address.starts_with("addr") {
+        return Ok(address.to_string());
+    }
+    
+    // Try to convert hex to bech32
+    hex_to_bech32_address(address)
+}
+
 #[derive(Clone)]
 pub struct BlockfrostClient {
     client: Client,
@@ -53,7 +83,17 @@ impl BlockfrostClient {
         page: u32,
         count: u32,
     ) -> Result<Vec<crate::api::user::Transaction>, String> {
-        let url = format!("{}/addresses/{}/transactions", self.base_url, address);
+        // Convert hex address to bech32 if needed (Blockfrost requires bech32)
+        let bech32_address = normalize_address_for_blockfrost(address)
+            .map_err(|e| format!("Address conversion failed: {}", e))?;
+        
+        tracing::info!(
+            "Blockfrost: Converting address {} -> {}",
+            &address[..address.len().min(16)],
+            &bech32_address[..bech32_address.len().min(20)]
+        );
+        
+        let url = format!("{}/addresses/{}/transactions", self.base_url, bech32_address);
 
         let response = self
             .client
@@ -65,7 +105,10 @@ impl BlockfrostClient {
             .map_err(|e| format!("Request failed: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("Blockfrost error: {}", response.status()));
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            tracing::error!("Blockfrost API error: {} - {}", status, error_text);
+            return Err(format!("Blockfrost error: {} - {}", status, error_text));
         }
 
         let txs: Vec<BlockfrostTransaction> = response
@@ -102,7 +145,10 @@ impl BlockfrostClient {
             .map_err(|e| format!("Request failed: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("Blockfrost error: {}", response.status()));
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            tracing::error!("Blockfrost API error: {} - {}", status, error_text);
+            return Err(format!("Blockfrost error: {} - {}", status, error_text));
         }
 
         response
@@ -112,7 +158,17 @@ impl BlockfrostClient {
     }
 
     pub async fn get_account_info(&self, address: &str) -> Result<crate::api::user::AccountInfo, String> {
-        let url = format!("{}/addresses/{}", self.base_url, address);
+        // Convert hex address to bech32 if needed (Blockfrost requires bech32)
+        let bech32_address = normalize_address_for_blockfrost(address)
+            .map_err(|e| format!("Address conversion failed: {}", e))?;
+        
+        tracing::info!(
+            "Blockfrost: Converting address {} -> {}",
+            &address[..address.len().min(16)],
+            &bech32_address[..bech32_address.len().min(20)]
+        );
+        
+        let url = format!("{}/addresses/{}", self.base_url, bech32_address);
 
         let response = self
             .client
@@ -123,7 +179,10 @@ impl BlockfrostClient {
             .map_err(|e| format!("Request failed: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(format!("Blockfrost error: {}", response.status()));
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            tracing::error!("Blockfrost API error: {} - {}", status, error_text);
+            return Err(format!("Blockfrost error: {} - {}", status, error_text));
         }
 
         let info: AccountInfo = response

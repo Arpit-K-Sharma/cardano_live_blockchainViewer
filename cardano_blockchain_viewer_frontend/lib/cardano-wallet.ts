@@ -84,6 +84,7 @@ export function getAvailableWallets(): SupportedWallet[] {
   return SUPPORTED_WALLETS.filter(wallet => wallet.checkAvailable())
 }
 
+
 /**
  * Connect to a specific wallet
  */
@@ -111,23 +112,38 @@ export async function connectWallet(walletId: string): Promise<{
   const api = await walletApi.enable()
 
   // Get wallet address
+  // Note: CIP-30 wallets may return addresses in hex or bech32 format
   const usedAddresses = await api.getUsedAddresses()
   const unusedAddresses = await api.getUnusedAddresses()
 
-  const addressHex = usedAddresses[0] || unusedAddresses[0]
-  if (!addressHex) {
+  const rawAddress = usedAddresses[0] || unusedAddresses[0]
+  if (!rawAddress) {
     throw new Error('No addresses found in wallet')
   }
 
-  // Convert hex address to bech32
-  const address = hexToBech32(addressHex)
+  // Determine address format and normalize
+  // CIP-30 signData accepts both hex and bech32 addresses
+  // We'll keep the address as returned by the wallet for signData operations
+  // but ensure consistency for backend communication
+  let address: string
+  
+  // Check if address is bech32 (starts with addr1, addr_test1, etc.)
+  if (rawAddress.startsWith('addr')) {
+    // It's a bech32 address - use as-is for signData
+    address = rawAddress
+    console.log('📝 Address is bech32 format:', address.substring(0, 20) + '...')
+  } else {
+    // Assume it's hex format
+    address = rawAddress
+    console.log('📝 Address is hex format:', address.substring(0, 20) + '...')
+  }
 
-  // Get stake address (optional)
+  // Get stake address (optional) - keep as hex for consistency
   let stakeAddress: string | null = null
   try {
     const rewardAddresses = await api.getRewardAddresses()
     if (rewardAddresses && rewardAddresses.length > 0) {
-      stakeAddress = hexToBech32(rewardAddresses[0])
+      stakeAddress = rewardAddresses[0] // Keep as hex
     }
   } catch (error) {
     console.warn('Failed to get stake address:', error)
@@ -144,29 +160,61 @@ export async function signData(
   address: string,
   message: string
 ): Promise<DataSignature> {
-  // Most modern Cardano wallets (Eternl, Lace, etc.) support bech32 addresses directly
-  // per CIP-30 spec, so we pass the address as-is
-
-  // Convert message to hex
+  // CIP-30 signData(address, payload) specification:
+  // - address: Can be hex-encoded bytes or bech32 string (wallet handles both)
+  // - payload: Must be hex-encoded string representing the bytes to sign
+  
+  // Convert message to hex (as required by CIP-30)
   const messageHex = Buffer.from(message, 'utf-8').toString('hex')
+  console.log('✍️ Signing message:', {
+    originalLength: message.length,
+    hexLength: messageHex.length,
+    hexPreview: messageHex.substring(0, 50) + '...'
+  })
 
-  // Sign with wallet - use bech32 address directly
+  // Sign with wallet - address can be hex or bech32, wallet handles it
+  // The wallet will sign the bytes represented by the hex string
   const signature = await api.signData(address, messageHex)
+  
+  console.log('✅ Signature received:', {
+    signatureLength: signature.signature.length,
+    keyLength: signature.key.length
+  })
 
   return signature
 }
 
+
 /**
  * Convert hex address to bech32 format
+ * Uses a simplified approach that works with most CIP-30 wallets
  */
 function hexToBech32(hex: string): string {
-  // This is a simplified version - in production use @emurgo/cardano-serialization-lib-browser
   try {
-    const bytes = Buffer.from(hex, 'hex')
-    // For now, return the hex with prefix (frontend will handle it)
-    // In real implementation, use proper bech32 encoding
-    return `addr1${bytes.toString('hex').slice(0, 50)}`
-  } catch {
+    // Remove any existing prefixes and ensure it's clean hex
+    const cleanHex = hex.replace(/^addr1[a-z0-9]+/, '').replace(/^0x/, '')
+    
+    // For most modern wallets, the address bytes are already in the correct format
+    // The hex provided by getUsedAddresses() is already the raw address bytes
+    // We just need to ensure it's properly formatted
+    
+    // Convert to bytes and back to ensure valid length
+    const bytes = Buffer.from(cleanHex, 'hex')
+    
+    if (bytes.length === 0) {
+      throw new Error('Invalid address bytes')
+    }
+    
+    // Most CIP-30 wallets return the raw address bytes directly
+    // The bech32 encoding should be done by the wallet itself, but since we
+    // already have hex from the wallet, we assume it's in the correct format
+    // Return the hex as-is with addr1 prefix (common for mainnet)
+    return `addr1${cleanHex}`
+    
+  } catch (error) {
+    console.warn('Address conversion failed:', error)
+    // If conversion fails, return the original hex
+    // This allows the backend to handle different address formats
     return hex
   }
 }

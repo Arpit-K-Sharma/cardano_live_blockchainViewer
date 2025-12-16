@@ -13,8 +13,8 @@ import {
 } from "@/components/ui/dialog"
 
 interface HeaderProps {
-  view: "dashboard" | "explorer"
-  setView: (view: "dashboard" | "explorer") => void
+  view: "dashboard" | "explorer" | "history"
+  setView: (view: "dashboard" | "explorer" | "history") => void
 }
 
 export function Header({ view, setView }: HeaderProps) {
@@ -52,6 +52,15 @@ export function Header({ view, setView }: HeaderProps) {
               >
                 <span>🔍</span> Explorer
               </Button>
+              {isAuthenticated && (
+                <Button
+                  variant={view === "history" ? "default" : "outline"}
+                  onClick={() => setView("history")}
+                  className="gap-2"
+                >
+                  <span>📜</span> My Transactions
+                </Button>
+              )}
 
               {/* Wallet section */}
               {isAuthenticated ? (

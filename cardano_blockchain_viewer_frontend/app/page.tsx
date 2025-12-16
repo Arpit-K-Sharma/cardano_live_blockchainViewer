@@ -5,6 +5,8 @@ import { BlockExplorer } from "@/components/block-explorer"
 import { Dashboard } from "@/components/dashboard"
 import { Header } from "@/components/header"
 import { ConnectionStatus } from "@/components/connection-status"
+import { UserTransactionHistory } from "@/components/user-transaction-history"
+import { useAuth } from "@/lib/auth-context"
 
 export interface BlockEvent {
   type: "Block"
@@ -83,6 +85,7 @@ export interface AppState {
 type MessageEvent = BlockEvent | TransactionEvent | TxInputEvent | TxOutputEvent | RollBackEvent | StatsMessage
 
 export default function Home() {
+  const { isAuthenticated } = useAuth()
   const [state, setState] = useState<AppState>({
     connected: false,
     stats: null,
@@ -90,7 +93,7 @@ export default function Home() {
     recentBlocks: [],
     recentTransactions: [],
   })
-  const [view, setView] = useState<"dashboard" | "explorer">("dashboard")
+  const [view, setView] = useState<"dashboard" | "explorer" | "history">("dashboard")
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -219,8 +222,10 @@ export default function Home() {
 
       {view === "dashboard" ? (
         <Dashboard blocks={state.recentBlocks} transactions={state.recentTransactions} />
-      ) : (
+      ) : view === "explorer" ? (
         <BlockExplorer blockGroups={blockGroups} />
+      ) : (
+        <UserTransactionHistory />
       )}
     </main>
   )

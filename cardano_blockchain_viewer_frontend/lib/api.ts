@@ -60,3 +60,74 @@ export async function verifySignature(
 
   return response.json()
 }
+
+// User transaction and wallet data types
+export interface Transaction {
+  tx_hash: string
+  block: string
+  block_height: number
+  block_time: number
+  slot: number
+  index: number
+  fees: string
+}
+
+export interface TransactionResponse {
+  transactions: Transaction[]
+  total: number
+  page: number
+}
+
+export interface WalletSummary {
+  address: string
+  stake_address: string | null
+  balance: string
+  transaction_count: number
+}
+
+/**
+ * Get user's transaction history (requires authentication)
+ */
+export async function getUserTransactions(
+  token: string,
+  page: number = 1,
+  count: number = 20
+): Promise<TransactionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/user/transactions?page=${page}&count=${count}`,
+    {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  )
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch transactions' }))
+    throw new Error(error.error || 'Failed to fetch transactions')
+  }
+
+  return response.json()
+}
+
+/**
+ * Get user's wallet summary (requires authentication)
+ */
+export async function getUserSummary(token: string): Promise<WalletSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/user/summary`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch wallet summary' }))
+    throw new Error(error.error || 'Failed to fetch wallet summary')
+  }
+
+  return response.json()
+}
