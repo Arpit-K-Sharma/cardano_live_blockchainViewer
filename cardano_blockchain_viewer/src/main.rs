@@ -1,20 +1,30 @@
+use axum::{extract::State, response::Json, routing::get, Router};
+use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{broadcast, Mutex};
 use tracing::{error, info};
 
+mod api;
+mod auth;
+mod blockfrost;
 mod config;
 mod models;
 mod services;
 mod websocket;
-mod blockfrost;
-mod auth;
-mod api;
 
-use config::{BUFFER_SIZE, CardanoConfig, SERVER_ADDR};
+use config::{CardanoConfig, BUFFER_SIZE, SERVER_ADDR};
 use models::AppState;
 use services::{EventProcessor, OuraReader};
 use websocket::WebSocketState;
+
+// Health check endpoint for deployment platforms
+async fn health_check() -> Json<Value> {
+    Json(json!({
+        "status": "healthy",
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    }))
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,27 +53,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (oura_tx, _) = broadcast::channel(1000); // Channel for Oura events
     let (ws_tx, _) = broadcast::channel(1000); // Channel for WebSocket broadcasts
 
+    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
+        tracing::warn!(" ⚠️  JWT_SECRET not set, using default (CHANGE IN PRODUCTION!)");
+        "change-this-secret-in-production-use-strong-key".to_string()
+    });
 
-    let jwt_secret = std::env::var("JWT_SECRET")
-                    .unwrap_or_else(|_| {
-                        tracing::warn!(" ⚠️  JWT_SECRET not set, using default (CHANGE IN PRODUCTION!)");
-            "change-this-secret-in-production-use-strong-key".to_string()
-                    });
-
-    let blockfrost_key = std::env::var("BLOCKFROST_API_KEY")
-        .unwrap_or_else(|_| {
-            // Attempt to load from backend-specific .env if not yet loaded
-            let _ = dotenvy::from_filename("cardano_blockchain_viewer/.env");
-            std::env::var("BLOCKFROST_API_KEY").expect("❌ BLOCKFROST_API_KEY environment variable must be set")
-        });
+    let blockfrost_key = std::env::var("BLOCKFROST_API_KEY").unwrap_or_else(|_| {
+        // Attempt to load from backend-specific .env if not yet loaded
+        let _ = dotenvy::from_filename("cardano_blockchain_viewer/.env");
+        std::env::var("BLOCKFROST_API_KEY")
+            .expect("❌ BLOCKFROST_API_KEY environment variable must be set")
+    });
 
     let jwt_manager = Arc::new(auth::JwtManager::new(jwt_secret));
     let blockfrost_key_len = blockfrost_key.len();
     let blockfrost = Arc::new(blockfrost::BlockfrostClient::new(blockfrost_key, "preprod"));
-    
+
     info!("🔐 JWT Manager initialized");
     info!("🌐 Blockfrost client initialized (preprod network)");
-    info!("🔑 BLOCKFROST_API_KEY loaded ({} chars)", blockfrost_key_len);
+    info!(
+        "🔑 BLOCKFROST_API_KEY loaded ({} chars)",
+        blockfrost_key_len
+    );
 
     // Initialize services
     let oura_reader = OuraReader::new(cardano_config);
@@ -97,15 +108,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ws_tx: ws_tx.clone(),
     };
 
-    let api_router = api::create_router(jwt_manager, blockfrost, ws_state);
+    let api_router =
+        api::create_router(jwt_manager, blockfrost, ws_state).route("/health", get(health_check));
     let server_addr: SocketAddr = SERVER_ADDR.parse()?;
 
     info!("🌍 Server starting on: http://{}", server_addr);
     info!("   REST API Endpoints:");
     info!("   - POST http://{}/api/auth/challenge", server_addr);
     info!("   - POST http://{}/api/auth/verify", server_addr);
-    info!("   - GET  http://{}/api/user/transactions (protected)", server_addr);
-    info!("   - GET  http://{}/api/user/summary (protected)", server_addr);
+    info!(
+        "   - GET  http://{}/api/user/transactions (protected)",
+        server_addr
+    );
+    info!(
+        "   - GET  http://{}/api/user/summary (protected)",
+        server_addr
+    );
     info!("   WebSocket Endpoint:");
     info!("   - ws://{}/ws", server_addr);
     info!("   Connect with: wscat -c ws://{}/ws", server_addr);

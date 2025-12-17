@@ -95,13 +95,15 @@ export default function Home() {
   })
   const [view, setView] = useState<"dashboard" | "explorer" | "history">("dashboard")
   const wsRef = useRef<WebSocket | null>(null)
+  const WEB_SOCKET_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws:://localhost:8080'
 
   useEffect(() => {
     // Connect WebSocket regardless of authentication status
     // Authentication is only needed for personalized features
     const connectWebSocket = () => {
       try {
-        const ws = new WebSocket("ws://localhost:8080/ws")
+        const ws_url = `${WEB_SOCKET_BASE_URL}/ws`
+        const ws = new WebSocket(ws_url)
 
         ws.onopen = () => {
           setState((prev) => ({ ...prev, connected: true }))
