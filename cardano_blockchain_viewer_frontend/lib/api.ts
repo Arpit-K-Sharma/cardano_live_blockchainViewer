@@ -1,6 +1,7 @@
 // API utilities for backend authentication
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://cardanoliveblockchainviewer-production.up.railway.app' || 'http://localhost:8080';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://cardanoliveblockchainviewer-production.up.railway.app';
 
 export interface ChallengeResponse {
   message: string
