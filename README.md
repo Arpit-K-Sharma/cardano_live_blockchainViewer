@@ -6,6 +6,11 @@ A real-time Cardano blockchain explorer with optional wallet authentication. Vie
 ![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
 ![Next.js](https://img.shields.io/badge/next.js-16.0.7-black.svg)
 
+[![Deploy on Railway](https://img.shields.io/badge/Railway-Staging-purple?logo=railway)](cardanoliveblockchainviewer-production-f3c2.up.railway.app/)
+[![Deploy on Vercel](https://img.shields.io/badge/Vercel-Production-black?logo=vercel)](https://cardano-live-blockchain-viewer.vercel.app/)
+
+
+
 ## 🌟 Features
 
 ### Public Access (No Authentication Required)
