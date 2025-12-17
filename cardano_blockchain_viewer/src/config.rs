@@ -10,7 +10,7 @@ pub const MAX_BLOCK_COUNT: usize = 100;
 pub const MAX_TX_COUNT: usize = 500;
 
 /// Server listening address (for both REST API and WebSocket)
-pub const SERVER_ADDR: &str = "127.0.0.1:8080";
+pub const SERVER_ADDR: &str = "0.0.0.0:8080";
 
 /// Cardano network configuration
 pub struct CardanoConfig {
