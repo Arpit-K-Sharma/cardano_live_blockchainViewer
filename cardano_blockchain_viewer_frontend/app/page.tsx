@@ -95,7 +95,7 @@ export default function Home() {
   })
   const [view, setView] = useState<"dashboard" | "explorer" | "history">("dashboard")
   const wsRef = useRef<WebSocket | null>(null)
-  const WEB_SOCKET_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws:://localhost:8080' || 'wss://cardanoliveblockchainviewer-production.up.railway.app'
+  const WEB_SOCKET_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://cardanoliveblockchainviewer-production.up.railway.app' || 'ws://localhost:8080';
 
   useEffect(() => {
     // Connect WebSocket regardless of authentication status
