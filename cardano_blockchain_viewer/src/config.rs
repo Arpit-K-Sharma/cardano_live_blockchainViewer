@@ -15,7 +15,7 @@ pub const SERVER_ADDR: &str = "127.0.0.1:8080";
 /// Cardano network configuration
 pub struct CardanoConfig {
     pub relay: &'static str,
-    pub magic: Option<u64>,
+    pub magic: &'static str,
     pub network_name: &'static str,
 }
 
@@ -25,7 +25,7 @@ impl CardanoConfig {
     pub fn preprod() -> Self {
         Self {
             relay: "preprod-node.world.dev.cardano.org:30000",
-            magic: Some(1),
+            magic: "pre-prod",
             network_name: "PreProd Testnet",
         }
     }
@@ -35,7 +35,7 @@ impl CardanoConfig {
         Self {
 
             relay: "preview-node.world.dev.cardano.org:3001",
-            magic: Some(2),
+            magic: "preview",
             network_name: "Preview Testnet",
         }
     }
@@ -44,7 +44,7 @@ impl CardanoConfig {
     pub fn mainnet() -> Self {
         Self {
             relay: "relays-new.cardano-mainnet.iohk.io:3001",
-            magic: Some(3),
+            magic: "mainnet",
             network_name: "Mainnet",
         }
     }

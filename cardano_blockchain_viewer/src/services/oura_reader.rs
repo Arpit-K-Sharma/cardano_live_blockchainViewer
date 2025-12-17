@@ -29,19 +29,15 @@ impl OuraReader {
         info!("This may take a moment to connect to the Cardano Node...");
 
         // Spawn oura dump command with proper flags to only output JSON
-        let mut cmd = Command::new("oura");
-        cmd.arg("dump")
+        let mut child = Command::new("oura")
+            .arg("dump")
             .arg(self.config.relay)
             .arg("--bearer")
-            .arg("tcp");
-
-        if let Some(magic) = self.config.magic {
-            cmd.arg("--magic").arg(magic.to_string());
-        }
-
-        let mut child = cmd
+            .arg("tcp")
+            .arg("--magic")
+            .arg(self.config.magic)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped()) // Capture stderr to log errors
             // spawn starts the process asynchronously
             // Returns a Child process handle (child) that can be used to read output or wait for the process to finish.
             // -? propagates errors if starting the process fails.
