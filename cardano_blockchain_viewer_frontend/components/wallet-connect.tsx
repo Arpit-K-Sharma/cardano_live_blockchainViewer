@@ -56,6 +56,7 @@ export function WalletConnect({ onSuccess, compact = false }: WalletConnectProps
       const { message } = await requestChallenge(address)
 
       // Step 3: Sign challenge with wallet (CIP-30)
+      // Signature is in COSE-Sign1 format
       const signature = await signData(api, address, message)
 
       // Step 4: Verify signature and get JWT
