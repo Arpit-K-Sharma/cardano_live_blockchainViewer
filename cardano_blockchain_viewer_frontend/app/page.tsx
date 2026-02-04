@@ -111,12 +111,12 @@ export default function Home() {
         }
 
         ws.onmessage = (event) => {
-          try {
-            const data: MessageEvent = JSON.parse(event.data)
-            handleMessage(data)
-          } catch (error) {
-            console.error("Error parsing message:", error)
-          }
+            try {
+              const data: MessageEvent = JSON.parse(event.data)
+              handleMessage(data)
+            } catch (error) {
+              console.error("Error parsing message:", error)
+            }
         }
 
         ws.onerror = (error) => {
